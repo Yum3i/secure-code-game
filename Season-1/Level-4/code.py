@@ -11,6 +11,7 @@ the tests.py again to recreate it.
 
 import sqlite3
 import os
+import re
 from flask import Flask, request
 
 ### Unrelated to the exercise -- Starts here -- Please ignore
@@ -34,6 +35,21 @@ class Connect(object):
         except sqlite3.Error as e:
             print(f"ERROR: {e}")
         return connection
+
+    # same as above, but the database can only be read, not changed
+    def create_readonly_connection(self, path):
+        connection = None
+        try:
+            connection = sqlite3.connect("file:" + path + "?mode=ro", uri=True)
+        except sqlite3.Error as e:
+            print(f"ERROR: {e}")
+        return connection
+
+# a stock symbol consists only of letters, digits and dots (MSFT, BRK.B),
+# so everything starting from the first other character is dropped
+def clean_symbol(stock_symbol):
+    match = re.match(r"[A-Za-z0-9.]*", stock_symbol)
+    return match.group(0)
 
 class Create(object):
 
@@ -106,7 +122,8 @@ class DB_CRUD_ops(object):
                 # res += "[SANITIZED_QUERY]" + sanitized_query + "\n"
                 res += "CONFIRM THAT THE ABOVE QUERY IS NOT MALICIOUS TO EXECUTE"
             else:
-                cur.execute(query)
+                # user input is passed as a parameter, not as part of the SQL text
+                cur.execute("SELECT * FROM stocks WHERE symbol = ?", (stock_symbol,))
 
                 query_outcome = cur.fetchall()
                 for result in query_outcome:
@@ -133,16 +150,15 @@ class DB_CRUD_ops(object):
             cur = db_con.cursor()
 
             res = "[METHOD EXECUTED] get_stock_price\n"
+            stock_symbol = clean_symbol(stock_symbol)
             query = "SELECT price FROM stocks WHERE symbol = '" + stock_symbol + "'"
             res += "[QUERY] " + query + "\n"
-            if ';' in query:
-                res += "[SCRIPT EXECUTION]\n"
-                cur.executescript(query)
-            else:
-                cur.execute(query)
-                query_outcome = cur.fetchall()
-                for result in query_outcome:
-                    res += "[RESULT] " + str(result) + "\n"
+
+            # user input is passed as a parameter, not as part of the SQL text
+            cur.execute("SELECT price FROM stocks WHERE symbol = ?", (stock_symbol,))
+            query_outcome = cur.fetchall()
+            for result in query_outcome:
+                res += "[RESULT] " + str(result) + "\n"
             return res
 
         except sqlite3.Error as e:
@@ -170,11 +186,9 @@ class DB_CRUD_ops(object):
             query = "UPDATE stocks SET price = '%d' WHERE symbol = '%s'" % (price, stock_symbol)
             res += "[QUERY] " + query + "\n"
 
-            cur.execute(query)
+            # user input is passed as parameters, not as part of the SQL text
+            cur.execute("UPDATE stocks SET price = ? WHERE symbol = ?", (price, stock_symbol))
             db_con.commit()
-            query_outcome = cur.fetchall()
-            for result in query_outcome:
-                res += "[RESULT] " + result
             return res
 
         except sqlite3.Error as e:
@@ -194,7 +208,9 @@ class DB_CRUD_ops(object):
         try:
             path = os.path.dirname(os.path.abspath(__file__))
             db_path = os.path.join(path, 'level-4.db')
-            db_con = con.create_connection(db_path)
+            # the user writes the query himself, so the database is opened read-only:
+            # SELECT works, but UPDATE / DELETE / DROP fail
+            db_con = con.create_readonly_connection(db_path)
             cur = db_con.cursor()
 
             res = "[METHOD EXECUTED] exec_multi_query\n"
@@ -225,7 +241,9 @@ class DB_CRUD_ops(object):
         try:
             path = os.path.dirname(os.path.abspath(__file__))
             db_path = os.path.join(path, 'level-4.db')
-            db_con = con.create_connection(db_path)
+            # the user writes the query himself, so the database is opened read-only:
+            # SELECT works, but UPDATE / DELETE / DROP fail
+            db_con = con.create_readonly_connection(db_path)
             cur = db_con.cursor()
 
             res = "[METHOD EXECUTED] exec_user_script\n"
