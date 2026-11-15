@@ -12,16 +12,12 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
 	"regexp"
 )
-
-var reqBody struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
 
 func isValidEmail(email string) bool {
 	// The provided regular expression pattern for email validation by OWASP
@@ -46,6 +42,13 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method == "POST" {
 
+		// the request body is a local variable: a global one is shared between
+		// concurrent requests, so one user could get another user's data
+		var reqBody struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+
 		decode := json.NewDecoder(r.Body)
 		decode.DisallowUnknownFields()
 
@@ -58,19 +61,24 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		password := reqBody.Password
 
 		if !isValidEmail(email) {
-			log.Printf("Invalid email format: %q", email)
+			// the email itself is not written to the log
+			log.Print("Invalid email format")
 			http.Error(w, "Invalid email format", http.StatusBadRequest)
 			return
 		}
 
+		// the same answer for an unknown email and a wrong password,
+		// so it is impossible to find out which emails are registered
 		storedPassword, ok := testFakeMockUsers[email]
 		if !ok {
-			http.Error(w, "invalid email or password", http.StatusUnauthorized)
+			http.Error(w, "Invalid Email or Password", http.StatusUnauthorized)
 			return
 		}
 
-		if password == storedPassword {
-			log.Printf("User %q logged in successfully with a valid password %q", email, password)
+		// constant-time comparison does not reveal how many characters matched
+		if subtle.ConstantTimeCompare([]byte(password), []byte(storedPassword)) == 1 {
+			// neither the email nor the password is written to the log
+			log.Print("Successful login request")
 			w.WriteHeader(http.StatusOK)
 		} else {
 			http.Error(w, "Invalid Email or Password", http.StatusUnauthorized)
