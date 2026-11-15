@@ -13,6 +13,16 @@ def source():
     TaxPayer('foo', 'bar').get_prof_picture(request.args["input"])
 ### Unrelated to the exercise -- Ends here -- Please ignore
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# resolves the user path relative to BASE_DIR (following '..' and symlinks)
+# and returns it only if it stays inside BASE_DIR, otherwise None
+def safe_path(path):
+    full_path = os.path.realpath(os.path.join(BASE_DIR, path))
+    if not full_path.startswith(BASE_DIR + os.sep):
+        return None
+    return full_path
+
 class TaxPayer:
 
     def __init__(self, username, password):
@@ -25,15 +35,12 @@ class TaxPayer:
     def get_prof_picture(self, path=None):
         # setting a profile picture is optional
         if not path:
-            pass
-
-        # defends against path traversal attacks
-        if path.startswith('/') or path.startswith('..'):
             return None
 
-        # builds path
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        prof_picture_path = os.path.normpath(os.path.join(base_dir, path))
+        # defends against path traversal attacks
+        prof_picture_path = safe_path(path)
+        if prof_picture_path is None:
+            return None
 
         with open(prof_picture_path, 'rb') as pic:
             picture = bytearray(pic.read())
@@ -48,8 +55,13 @@ class TaxPayer:
         if not path:
             raise Exception("Error: Tax form is required for all users")
 
-        with open(path, 'rb') as form:
+        # defends against path traversal attacks
+        tax_form_path = safe_path(path)
+        if tax_form_path is None:
+            return None
+
+        with open(tax_form_path, 'rb') as form:
             tax_data = bytearray(form.read())
 
         # assume that tax data is returned on screen after this
-        return path
+        return tax_form_path
